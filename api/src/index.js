@@ -6,7 +6,6 @@ import fs from "fs";
 import https from "https";
 import gql from 'graphql-tag';
 import { GraphQLError } from 'graphql';
-import { Analytics } from '@segment/analytics-node'
 
 //import { makeAugmentedSchema } from "neo4j-graphql-js";
 import { Neo4jGraphQL } from "@neo4j/graphql";
@@ -31,102 +30,23 @@ import {
 } from './license/license';
 import { verifyUserPassword } from './models/users';
 import { validateTokenExistsAndIsNotExpired } from './security/localSessions';
+import { assertAllowedGraphQLRequest } from './security/operationGate';
+import { createManagedResolvers } from './security/managedResolvers.js';
+import { trustedProxyIdentity } from './security/proxyIdentity.js';
+import { createManagedRuntime } from './security/runtimeFactory.js';
+import { httpOperationGate } from './security/httpOperationGate.js';
+import { proxySessionHandler } from './security/proxySession.js';
+import { proxyLicenseHandler } from './security/proxyLicense.js';
+import { createProxyEulaHandlers } from './security/proxyEula.js';
+import { prepareRuntimeLicense } from './security/runtimeLicense.js';
+import { createRuntimeHealth } from './security/runtimeHealth.js';
+import { createManagedMetadata } from './security/managedMetadata.js';
+import { createMetadataResolvers } from './security/metadataResolvers.js';
 import { VERSION } from './version';
 
 // set environment variables from ../.env
 dotenv.config();
 
-var analytics = null;
-
-if (process.env.SEGMENT_WRITE_KEY) {
-  console.log("SEGMENT_WRITE_KEY is present, will record API analytics");
-  analytics = new Analytics({ writeKey: process.env.SEGMENT_WRITE_KEY })
-} else {
-  console.log("SEGMENT_WRITE_KEY is not present, API analytics printed to console");
-}
-
-var trackedActions = {};
-var reportTimer = null;
-var lastReportTimeRequest = null;
-const reportDelay = 5000;   // 5 seconds
-const maxDelay = 60000;
-//const maxDelay = 0;
-
-
-const trackAction = (email, action) => {  
-  if (lastReportTimeRequest === null) {
-    lastReportTimeRequest = new Date().getTime();
-  }
-  var userActions = trackedActions[email];
-  if (!userActions) {
-    userActions = {};
-    trackedActions[email] = userActions;
-  }
-  if (userActions[action] === undefined) {
-    userActions[action] = {
-      firstTimeReported: new Date().getTime(),
-      actionCount: 1
-    }
-  } else {
-    userActions[action].actionCount = userActions[action].actionCount + 1;
-  }
-
-  const now = new Date().getTime();
-  if (reportTimer !== null) {
-    clearTimeout(reportTimer);
-  }
-  if ((now - lastReportTimeRequest) >= maxDelay) {
-    writeTrackedActions();
-  } else {
-    reportTimer = setTimeout(writeTrackedActions, reportDelay);
-  }
-}
-
-const writeTrackedActions = () => {
-  const allActions = [];
-  Object.keys(trackedActions).forEach(email => {
-    const actions = trackedActions[email];
-    Object.keys(actions).forEach(action => {
-      allActions.push({
-        email: email,
-        action: action,
-        ...actions[action]
-      })
-    })
-  })
-  allActions.sort((a,b) => {
-    if (a.firstTimeReported === b.firstTimeReported) return 0;
-    if (a.firstTimeReported < b.firstTimeReported) 
-      return -1;
-    else 
-      return 1;
-  })
-
-  allActions.forEach(actionEntry => {
-    const { email, action, actionCount } = actionEntry;
-    reportTrackedAction(email, action, actionCount)
-  })
-  
-  trackedActions = {};
-  lastReportTimeRequest = null;
-}
-
-const reportTrackedAction = (email, action, actionCount) => {  
-  //console.log(`tracking action ${action} for ${email}`)
-  const analyticsPayload = {
-    userId: email,
-    event: "WORKBENCH_API_REQUEST",
-    properties: {
-      action: action,
-      actionCount: actionCount
-    }
-  }
-  if (analytics) {
-    analytics.track(analyticsPayload);
-  } else {
-    console.log('analytics not initialized, logging to console: ', JSON.stringify(analyticsPayload));
-  }
-}
 
 var driverConfig = {
   userAgent: `neo4j-cypher-workbench-api/v${VERSION}`
@@ -136,7 +56,10 @@ const uri = process.env.NEO4J_URI || "bolt://localhost:7687";
 const user = process.env.NEO4J_USER || "neo4j";
 const pass = process.env.NEO4J_PASSWORD || "password";
 
-if (!process.env.NEO4J_URI.match(/bolt\+s/) && !process.env.NEO4J_URI.match(/neo4j\+s/)) {
+if (process.env.AUTH_METHOD === 'proxy' && (!process.env.NEO4J_URI || !process.env.NEO4J_USER || !process.env.NEO4J_PASSWORD || !process.env.NEO4J_DATABASE)) {
+  throw new Error('Explicit metadata database credentials are required for proxy auth');
+}
+if (!/^bolt\+s:|^neo4j\+s:/.test(uri)) {
   driverConfig.encrypted = (process.env.NEO4J_ENCRYPTED === "true") ? true : false;
 }
 //console.log(uri, user, pass, driverConfig);
@@ -147,6 +70,7 @@ const driver = neo4j.driver(
 );
 setDriver(driver);
 
+if (process.env.AUTH_METHOD === 'proxy') prepareRuntimeLicense(process.env);
 const licenseDirectory = process.env.LICENSE_DIR || './';
 setLicenseDirectory(licenseDirectory);
 if (!isLicenseValid()) {
@@ -196,6 +120,24 @@ const typeDefs = mergeTypes(
 const resolvers = mergeResolvers(
   loadFilesSync(path.join(__dirname, "./resolvers/*.js"))
 );
+
+let managedRuntime;
+let runtimeHealth;
+let managedMetadata;
+if (process.env.AUTH_METHOD === 'proxy') {
+  if (!process.env.WORKBENCH_ORGANIZATION) throw new Error('WORKBENCH_ORGANIZATION is required for proxy auth');
+  managedRuntime = createManagedRuntime({ env: process.env, metadataDriver: driver, driverFactory: neo4j.driver, authFactory: neo4j.auth.basic });
+  runtimeHealth = createRuntimeHealth({ targetDriver: managedRuntime.targetDriver, metadataDriver: driver, targetDatabase: process.env.WORKBENCH_TARGET_DATABASE, metadataDatabase: process.env.NEO4J_DATABASE });
+  const managed = createManagedResolvers({ execute: managedRuntime.executor });
+  resolvers.Query.executeCypherQuery = managed.Query.executeCypherQuery;
+  resolvers.Query.getSchema = managed.Query.getSchema;
+  managedMetadata = createManagedMetadata({ driver, database: process.env.NEO4J_DATABASE, organization: process.env.WORKBENCH_ORGANIZATION });
+  const metadataResolvers = createMetadataResolvers({ metadata: managedMetadata });
+  Object.assign(resolvers.Query, metadataResolvers.Query);
+  for (const name of ['saveGraphDoc', 'saveGraphDocMetadata', 'saveGraphDocRootsWithMetadata', 'saveGraphDocWithFullMetadata']) {
+    resolvers.Mutation[name] = metadataResolvers.Mutation[name];
+  }
+}
 
 const neo4jGraphQL = new Neo4jGraphQL({ 
   typeDefs, 
@@ -478,6 +420,8 @@ function startServer() {
   neo4jGraphQL.getSchema().then(async (schema) => {
     apollo = new ApolloServer({
       schema: schema,
+      debug: process.env.AUTH_METHOD !== 'proxy' && process.env.NODE_ENV !== 'production',
+      formatError: process.env.AUTH_METHOD === 'proxy' ? () => ({ message: 'Workbench operation failed', extensions: { code: 'WORKBENCH_OPERATION_FAILED' } }) : undefined,
       introspection: (process.env.APOLLO_SERVER_INTROSPECTION === 'true'),
       playground: (process.env.APOLLO_SERVER_PLAYGROUND === 'true'),
       cors: true,
@@ -488,8 +432,9 @@ function startServer() {
           .map(key => console.log(`${key}: `, req[key]));
         */
         //console.log('-- *** ---');
+        if (process.env.AUTH_METHOD === 'proxy') assertAllowedGraphQLRequest({ method: req.method, body: req.body, operationName: req.body?.operationName });
         const graphQLOperation = getGraphQLOperation(req.body.query);
-        
+
         //console.log(req.body);
         //console.log(req.body.variables);
         //console.log(req.body.operationName);
@@ -497,8 +442,11 @@ function startServer() {
         const baseContext = {
           driver,
           driverConfig: { database: process.env.NEO4J_DATABASE || 'neo4j' }
-        };        
-          if (process.env.AUTH_METHOD=="auth0") {
+        };
+          if (process.env.AUTH_METHOD === 'proxy') {
+            const identity = trustedProxyIdentity(req.headers, process.env.WORKBENCH_ORGANIZATION);
+            return { ...baseContext, email: identity.email, organization: identity.organization, headers: req.headers };
+          } else if (process.env.AUTH_METHOD=="auth0") {
             const id_token = stripToken(token);
             if (process.env.AUTH0_API_KEY_AUDIENCE) {
                 const solutionsWorkbenchEmail = req.headers['solutions-workbench-email'] || req.headers['cypher-workbench-email'];
@@ -510,7 +458,6 @@ function startServer() {
                     throw response.error;
                   } else {
                     if (response.validOperationsSet.has(graphQLOperation)) {
-                      trackAction(response.email, graphQLOperation);
                       return { ...baseContext, email: response.email, picture: '', name: '' };      
                     } else {
                       throw getNewError("ACCESS_DENIED", `The operation '${graphQLOperation}' you requested is not authorized`);
@@ -542,9 +489,23 @@ function startServer() {
 
     app = express();
     //app.use(bodyParser.json({limit: '1mb'}));
-    app.use(bodyParser.json({limit: '10mb', extended: true}))
-    app.use(bodyParser.urlencoded({limit: '10mb', extended: true}))
-  
+    app.use(bodyParser.json({limit: process.env.AUTH_METHOD === 'proxy' ? '1mb' : '10mb', extended: true}))
+    app.use(bodyParser.urlencoded({limit: process.env.AUTH_METHOD === 'proxy' ? '1mb' : '10mb', extended: true}))
+    if (process.env.AUTH_METHOD === 'proxy') {
+      app.get('/session', proxySessionHandler(process.env.WORKBENCH_ORGANIZATION));
+      app.get('/license', proxyLicenseHandler({ organization: process.env.WORKBENCH_ORGANIZATION, getLicense: getLicenseInfo }));
+      const eula = createProxyEulaHandlers({ organization: process.env.WORKBENCH_ORGANIZATION,
+        metadata: managedMetadata, version: process.env.WORKBENCH_EULA_VERSION });
+      app.get('/eula/status', eula.status);
+      app.post('/eula/accept', eula.accept);
+      app.get('/health/ready', async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        const ready = await runtimeHealth.check();
+        res.status(ready ? 200 : 503).json({ ready });
+      });
+    }
+    app.use(httpOperationGate(process.env.AUTH_METHOD === 'proxy'))
+
     apollo.applyMiddleware({ app });
 
     var server = http.createServer(app);
@@ -569,7 +530,21 @@ function startServer() {
   
     if (protocolOk) {
       const port = (process.env.GRAPHQL_LISTEN_PORT) ? process.env.GRAPHQL_LISTEN_PORT : 4000;
-      server.listen({ port: port }, () =>
+      if (process.env.AUTH_METHOD === 'proxy') {
+        let stopping = false;
+        const shutdown = async () => {
+          if (stopping) return;
+          stopping = true;
+          const deadline = setTimeout(() => process.exit(1), 5000);
+          deadline.unref();
+          server.close();
+          await Promise.allSettled([apollo.stop(), runtimeHealth.close()]);
+          clearTimeout(deadline);
+        };
+        process.once('SIGTERM', shutdown);
+        process.once('SIGINT', shutdown);
+      }
+      server.listen({ port: port, host: process.env.AUTH_METHOD === 'proxy' ? '127.0.0.1' : undefined }, () =>
         console.log(
           '🚀 Server ready at',
           `${process.env.HOST_PROTOCOL}://${process.env.HOST_NAME}:${port}${apollo.graphqlPath}`

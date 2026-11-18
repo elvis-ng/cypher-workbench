@@ -481,9 +481,6 @@ export function saveNewConfigEntries (graphRootNode, newConfigEntries, newLabelF
 }
 
 const ID_SEPARATOR = '_$$_';
-const REG_EX_ID_SEPARATOR = ID_SEPARATOR.replace(/\$/g,'\\$');
-const REG_EX_STR = `^([^${REG_EX_ID_SEPARATOR}]*)${REG_EX_ID_SEPARATOR}(.*)$`;
-const ID_SEPARATOR_REG_EX_EXPR = new RegExp(REG_EX_STR);
 
 export const getSerializableObjectId = (object, objectIdMap) => {
     if (object && typeof(object) === 'object') {
@@ -603,8 +600,11 @@ export const deserializeObject = (serializedObject, instanceMapper, deserialized
     const { objectSerializedId, objectKeyMap, objectValue } = serializedObject;
     var objectName = 'Object';
     if (objectSerializedId) {
-        var match = objectSerializedId.match(ID_SEPARATOR_REG_EX_EXPR);
-        objectName = match[1];
+        const separatorIndex = objectSerializedId.indexOf(ID_SEPARATOR);
+        if (separatorIndex < 1) {
+            throw new Error(`Deserialization error. Invalid serialized object id '${objectSerializedId}'`);
+        }
+        objectName = objectSerializedId.slice(0, separatorIndex);
     }
 
     if (objectSerializedId && deserializedObjects[objectSerializedId]) {

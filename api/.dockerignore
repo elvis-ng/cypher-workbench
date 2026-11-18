@@ -1,0 +1,16 @@
+node_modules
+.compiled
+compiled
+dist
+coverage
+.git
+.env
+.env.*
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+!license.lic
+!license.lic.labs
+npm-debug.log*

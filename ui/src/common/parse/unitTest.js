@@ -62,7 +62,7 @@ function parseTestCypher (testCypher) {
                     var expect = match[1].trim();
                     var assertion = new Assertion();
                     testCase.assertions.push(assertion);
-                    assertion.assertion = expect.replace("'","\\'");
+                    assertion.assertion = expect.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                     for (var i = 0; i < conditionals.length; i++) {
                         var index = expect.indexOf(conditionals[i]);
                         if (index >= 0) {
@@ -89,7 +89,7 @@ function parseTestCypher (testCypher) {
             }
         });
     // for cypher delimit single quotes
-    testCase.cypher = testCase.cypher.replace("'","\\'")    
+    testCase.cypher = testCase.cypher.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
     return testCase;
 }
 

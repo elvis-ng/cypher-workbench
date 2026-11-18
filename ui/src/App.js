@@ -17,6 +17,7 @@ import { getDynamicConfigValue } from './dynamicConfig';
 import Homepage from "./homePage";
 import { getSystemMessages } from './persistence/graphql/GraphQLPersistence';
 import { fetchBrandingInfo } from './persistence/graphql/getBrandingInfo';
+import { createNativeHandshake } from './nativeHandshake';
 
 
 import "./App.css";
@@ -86,6 +87,7 @@ class App extends Component {
 
   state = {
     brandingInfo: this.brandingInfo,
+    bootstrapError: null,
     theme: this.constructTheme({ 
       //primary: this.brandingInfo.primaryColor || DEFAULT_COLORS.primary, 
       primary: DEFAULT_COLORS.primary, 
@@ -126,6 +128,8 @@ class App extends Component {
   }
 
   async componentDidMount() {
+    this.nativeHandshake = createNativeHandshake(window);
+    this.nativeHandshake.start();
 
     /*
     setTimeout(() => {
@@ -140,6 +144,26 @@ class App extends Component {
 
     appQueryParams = getQueryParams();
     const authMethod = getAuthMethod();
+    if (authMethod === "proxy") {
+      try {
+        const session = await getAuth().bootstrap();
+        licenseEulaFile = await getEulaFile();
+        localStorage.setItem('licenseEulaFile', licenseEulaFile);
+        const didAcceptEula = await getAuth().acceptedEula(session.email);
+        if (didAcceptEula) {
+          getAuth().setAcceptedEula(true);
+          this.postLoginOk();
+        } else {
+          if (this.nativeHandshake) this.nativeHandshake.interactionRequired();
+          doRedirect('/eula/' + encodeURIComponent(session.email), 'App.js proxy EULA required');
+        }
+      } catch (error) {
+        console.error(error);
+        this.setState({ bootstrapError: error.message });
+        if (this.nativeHandshake) this.nativeHandshake.fail(error);
+      }
+      return;
+    }
     if (authMethod === "auth0") {
       // if using auth0 attemp silent auth
       if (this.props.location.pathname === "/callback") {
@@ -221,21 +245,22 @@ class App extends Component {
   }
 
   render() {
-    const { theme, brandingInfo } = this.state;
+    const { theme, brandingInfo, bootstrapError } = this.state;
     const auth = getAuth();
+    if (bootstrapError) return <div role="alert">Cypher Workbench unavailable: {bootstrapError}</div>;
 
     return (
       <MuiThemeProvider theme={theme}>
         <Route exact path="/callback" component={Callback} />
         <Route exact path="/eula/:emailpayload" component={Eula} />
         <Route exact path="/login" component={Email} />
-        <PrivateRoute auth={auth} path={"/"} component={Homepage} brandingInfo={brandingInfo}/>
+        <PrivateRoute auth={auth} path={"/"} component={Homepage} brandingInfo={brandingInfo} nativeHandshake={this.nativeHandshake}/>
         <PrivateRoute auth={auth} path="/terms" component={EulaOnline} />
         <PrivateRoute auth={auth} path="/messages" component={SystemMessages}/>
-        <PrivateRoute auth={auth} path={"/tools/:tool/:id"} component={Homepage} brandingInfo={brandingInfo}/>
-        <PrivateRoute auth={auth} path={"/tools/:tool"} component={Homepage} brandingInfo={brandingInfo}/>
-        <PrivateRoute auth={auth} path={"/model"} component={Homepage} brandingInfo={brandingInfo}/>
-        <PrivateRoute auth={auth} path={"/model/:id"} component={Homepage} brandingInfo={brandingInfo}/>
+        <PrivateRoute auth={auth} path={"/tools/:tool/:id"} component={Homepage} brandingInfo={brandingInfo} nativeHandshake={this.nativeHandshake}/>
+        <PrivateRoute auth={auth} path={"/tools/:tool"} component={Homepage} brandingInfo={brandingInfo} nativeHandshake={this.nativeHandshake}/>
+        <PrivateRoute auth={auth} path={"/model"} component={Homepage} brandingInfo={brandingInfo} nativeHandshake={this.nativeHandshake}/>
+        <PrivateRoute auth={auth} path={"/model/:id"} component={Homepage} brandingInfo={brandingInfo} nativeHandshake={this.nativeHandshake}/>
       </MuiThemeProvider>
     );
   }

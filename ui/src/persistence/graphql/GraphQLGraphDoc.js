@@ -5,8 +5,16 @@ import { GraphData, createNode, createRelationship } from '../../dataModel/graph
 import { RelationshipTypes, NodeLabels, MINI_GRAPH_DOC_SUBGRAPH_MODEL } from '../../dataModel/graphDataConstants';
 import DataTypes from "../../dataModel/DataTypes";
 import { getGraphQLProperty } from "../../dataModel/graphUtil";
+import { getAuthMethod } from '../../auth/authUtil';
+
+const unsupportedInProxy = (operation, callback) => {
+    if (getAuthMethod() !== 'proxy') return false;
+    callback({ success: false, error: `${operation} is unavailable in managed private mode` });
+    return true;
+};
 
 export function grabLock (graphDocKey, callback, doTokenExpiredErrorHandling = true) {
+    if (unsupportedInProxy('Locking', callback)) return;
     getClient().mutate({
       mutation: gql`
           mutation GrabLock($graphDocKey:String) {
@@ -31,6 +39,7 @@ export function grabLock (graphDocKey, callback, doTokenExpiredErrorHandling = t
 }
 
 export function deleteRemoteGraphDoc (graphDocKey, callback, doTokenExpiredErrorHandling = true) {
+    if (unsupportedInProxy('Deletion', callback)) return;
     //console.log("deleteRemoteGraphDoc");
     //console.log("key: " + graphDocKey);
     getClient().mutate({
@@ -59,6 +68,7 @@ export function deleteRemoteGraphDoc (graphDocKey, callback, doTokenExpiredError
 }
 
 export function deleteRemoteGraphDocs (graphDocKeys, callback, doTokenExpiredErrorHandling = true) {
+    if (unsupportedInProxy('Deletion', callback)) return;
     //console.log("deleteRemoteGraphDocs");
     //console.log("keys: " + graphDocKeys);
     getClient().mutate({
@@ -87,6 +97,7 @@ export function deleteRemoteGraphDocs (graphDocKeys, callback, doTokenExpiredErr
 }
 
 export function deleteRemoteGraphDocAndDefaultView (graphDocKey, callback, doTokenExpiredErrorHandling = true) {
+    if (unsupportedInProxy('Deletion', callback)) return;
     getClient().mutate({
         mutation: gql`
             mutation RemoveGraphDocAndDefaultView ($graphDocKey:String) {
@@ -113,6 +124,7 @@ export function deleteRemoteGraphDocAndDefaultView (graphDocKey, callback, doTok
   }
 
 export function updateUserRoles (graphDocKey, isPublic, userRoles, callback, doTokenExpiredErrorHandling = true) {
+    if (unsupportedInProxy('Sharing', callback)) return;
     getClient().mutate({
       mutation: gql`
         mutation UpdateUserRoles($graphDocKey:String,$isPublic:Boolean,$userRoles:[UserRoleInput]) {
@@ -305,7 +317,7 @@ const graphDocResult = `
 `;
 
 function processLoadGraphDocResult (graphDocResponse, callback, doTokenExpiredErrorHandling = true) {
-    console.log("GraphQLGraphDoc graphDocResponse: ", graphDocResponse);
+    if (getAuthMethod() !== 'proxy') console.log("GraphQLGraphDoc graphDocResponse: ", graphDocResponse);
     if (graphDocResponse.metadata && graphDocResponse.metadata.viewSettings && typeof(graphDocResponse.metadata.viewSettings) === 'string') {
         graphDocResponse.metadata.viewSettings = JSON.parse(graphDocResponse.metadata.viewSettings);
     }
@@ -319,7 +331,7 @@ function processLoadGraphDocResult (graphDocResponse, callback, doTokenExpiredEr
 }
 
 function processLoadGraphDocAndViewResult (graphDocAndViewResponse, callback, doTokenExpiredErrorHandling = true) {
-    console.log("GraphQLGraphDoc graphDocAndViewResponse: ", graphDocAndViewResponse);
+    if (getAuthMethod() !== 'proxy') console.log("GraphQLGraphDoc graphDocAndViewResponse: ", graphDocAndViewResponse);
     if (graphDocAndViewResponse.graphDoc.metadata && graphDocAndViewResponse.graphDoc.metadata.viewSettings && typeof(graphDocAndViewResponse.graphDoc.metadata.viewSettings) === 'string') {
         graphDocAndViewResponse.graphDoc.metadata.viewSettings = JSON.parse(graphDocAndViewResponse.graphDoc.metadata.viewSettings);
     }

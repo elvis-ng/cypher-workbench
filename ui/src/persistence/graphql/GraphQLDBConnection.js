@@ -2,6 +2,7 @@ import { gql } from "@apollo/client";
 
 import { ALL_DB_CONNECTIONS_FOR_USER } from './dbConnection';
 import { getClient, handleError } from './GraphQLPersistence';
+import { getAuthMethod } from '../../auth/authUtil';
 
 export function getAllDbConnectionsForUser (callback, doTokenExpiredErrorHandling = true) {
     getClient().query({
@@ -26,7 +27,8 @@ export function executeCypherQueryAsPromise (driverId, dbConnection, cypherQuery
 }*/
 
 export async function executeCypherQuery (driverId, dbConnection, cypherQuery, cypherParameters, callback, doTokenExpiredErrorHandling = true) {
-    if (!dbConnection || !dbConnection.url) {
+    const proxyMode = getAuthMethod() === 'proxy';
+    if (!proxyMode && !dbConnection.url) {
         callback({ success: false, error: 'Not connected'});
         return;
     }
@@ -41,7 +43,7 @@ export async function executeCypherQuery (driverId, dbConnection, cypherQuery, c
                 }`,
         variables: {
             input: {
-                dbConnection: {
+                ...(proxyMode ? {} : { dbConnection: {
                     id: driverId,
                     url: dbConnection.url,
                     databaseName: dbConnection.databaseName,
@@ -50,7 +52,7 @@ export async function executeCypherQuery (driverId, dbConnection, cypherQuery, c
                     encryptedUserPublicKey: dbConnection.encryptedUsernamePublicKey,
                     encryptedPassword: dbConnection.encryptedPassword,
                     encryptedPasswordPublicKey: dbConnection.encryptedPasswordPublicKey
-                },
+                }}),
                 cypherQuery: cypherQuery,
                 cypherParameters: cypherParameters
             }
@@ -71,7 +73,8 @@ export async function executeCypherQuery (driverId, dbConnection, cypherQuery, c
 }
 
 export async function getDbSchema (dbConnection, callback, doTokenExpiredErrorHandling = true) {
-    if (!dbConnection || !dbConnection.url) {
+    const proxyMode = getAuthMethod() === 'proxy';
+    if (!proxyMode && (!dbConnection || !dbConnection.url)) {
         callback({ success: false, error: 'Not connected'});
         return;
     }
@@ -83,7 +86,7 @@ export async function getDbSchema (dbConnection, callback, doTokenExpiredErrorHa
                   }
                 }`,
         variables: {
-            input: {
+            input: proxyMode ? {} : {
                 url: dbConnection.url,
                 databaseName: dbConnection.databaseName,
                 encrypted: dbConnection.encrypted,

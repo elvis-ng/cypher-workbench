@@ -2,6 +2,7 @@
 import neo4j, { Integer } from 'neo4j-driver';
 import { encryptAsymmetricOnlyWithVersion, getUserNameAndPasswordLocally } from './encryption';
 import { executeCypherQuery } from '../persistence/graphql/GraphQLDBConnection';
+import { getAuthMethod } from '../auth/authUtil';
 import { VERSION } from '../version';
 
 // a map of { dbId: { driver: null, connectionInfo: null } }
@@ -104,8 +105,26 @@ function convertInt (integer) {
     }
 }
 
-export function graphQLConnectToNeo (connectionInfo, successCallback, errorCallback) {
-    const cypherQuery = 'MATCH (n) RETURN count(n) as count';
+export function graphQLConnectToNeo (connectionInfo = {}, successCallback, errorCallback) {
+    const cypherQuery = 'RETURN 1 as connected';
+    if (getAuthMethod() === 'proxy') {
+        connectionInfo = {
+            ...connectionInfo,
+            managedTarget: true,
+            graphQLNeoProxy: true,
+            id: connectionInfo.id || 'managed-target'
+        };
+        executeCypherQuery(connectionInfo.id, connectionInfo, cypherQuery, {}, (response) => {
+            if (response.success) {
+                neoDrivers[connectionInfo.id] = { neoDriver: null, connectionInfo };
+                mainDriverId = connectionInfo.id;
+                successCallback({ proxy: true });
+            } else {
+                errorCallback(response.error);
+            }
+        });
+        return;
+    }
     // clear these out so they aren't sitting around in memory
     var encryptedUsername = encryptAsymmetricOnlyWithVersion(connectionInfo.username);
     var encryptedPassword = encryptAsymmetricOnlyWithVersion(connectionInfo.password);
@@ -156,7 +175,7 @@ export function connectToNeo (connectionInfo, successCallback, errorCallback) {
     //const graphQLNeoProxy = true;
     //connectionInfo.graphQLNeoProxy = graphQLNeoProxy;
     //if (true) {
-    if (connectionInfo && (connectionInfo.graphQLNeoProxy || connectionInfo.proxyThroughAppServer)) {
+    if (getAuthMethod() === 'proxy' || (connectionInfo && (connectionInfo.graphQLNeoProxy || connectionInfo.proxyThroughAppServer))) {
         return graphQLConnectToNeo(connectionInfo, successCallback, errorCallback);
     }
 

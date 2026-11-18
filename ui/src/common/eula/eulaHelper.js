@@ -5,8 +5,19 @@ import {
 import {
     LICENSE_TYPES
 } from '../LicensedFeatures';
+import { getDynamicConfigValue } from '../../dynamicConfig';
 
 export const getEulaFile = async () => {
+    if (getDynamicConfigValue('REACT_APP_AUTH_METHOD') === 'proxy') {
+      const response = await fetch('/backoffice/cypher-workbench/license', { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`License unavailable: ${response.status}`);
+      const license = await response.json();
+      if (!license.type || license.type.startsWith('Cloud_')) throw new Error('Managed license is not eligible');
+      return license.type === LICENSE_TYPES.Basic ? 'CypherWorkbenchEULA_Basic.html' :
+        license.type === LICENSE_TYPES.Enterprise ? 'CypherWorkbenchEULA_Enterprise.html' :
+        license.type === LICENSE_TYPES.EnterpriseTrial ? 'CypherWorkbenchEULA_EnterpriseTrial.html' :
+        'CypherWorkbenchEULA.html';
+    }
     var licenseInfo = await getLicenseInfo();  
     if (licenseInfo.success) {
         licenseInfo = licenseInfo.licenseInfo;

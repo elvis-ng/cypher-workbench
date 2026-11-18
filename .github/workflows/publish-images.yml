@@ -1,0 +1,89 @@
+name: Cypher Workbench - Publish images
+run-name: Publish Workbench API and UI from ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: cypher-workbench-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.component }} image
+    environment: DEV App
+    runs-on:
+      - codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - instance-size:large
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        component: [api, ui]
+    env:
+      DEVSTACK_USERNAME: ${{ vars.DEVSTACK_USERNAME }}
+      DEVSTACK_API_TOKEN: ${{ secrets.DEVSTACK_API_TOKEN }}
+      COMPONENT: ${{ matrix.component }}
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Configure AWS account
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-aws-account-env@master
+
+      - name: Configure corporate proxy
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-proxy@master
+
+      - name: Configure Artifactory mTLS
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-artifactory-mtls@master
+        with:
+          client-pem-b64: ${{ secrets.ARTIFACTORY_MTLS_CLIENT_PEM_B64 }}
+
+      - name: Verify adapted source
+        shell: bash
+        run: sh scripts/verify-pinned-source.sh .
+
+      - name: Build ARM64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/arm64 \
+            --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+            --build-arg http_proxy --build-arg https_proxy \
+            --build-arg NO_PROXY --build-arg no_proxy \
+            --tag backoffice:latest "$COMPONENT"
+
+      - name: Publish isolated Workbench tags
+        uses: elvis-ng/elvis-workflows/.github/actions/push-image-tags@master
+        with:
+          aws-region: eu-central-1
+          ecr-uri: 405567561446.dkr.ecr.eu-central-1.amazonaws.com
+          service-name: backoffice
+          commit-tag: workbench-${{ matrix.component }}-${{ github.sha }}
+          env-tag: workbench-${{ matrix.component }}-dev
+          deployment-branch: ${{ github.ref_name }}
+
+      - name: Report immutable image reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository='405567561446.dkr.ecr.eu-central-1.amazonaws.com/elvisng-backoffice'
+          reference=$(docker image inspect backoffice:latest \
+            --format '{{range .RepoDigests}}{{println .}}{{end}}' \
+            | grep -F "$repository@sha256:" | sort -u)
+          if [[ ! "$reference" =~ ^405567561446\.dkr\.ecr\.eu-central-1\.amazonaws\.com/elvisng-backoffice@sha256:[a-f0-9]{64}$ ]]; then
+            printf '%s\n' 'Could not determine a unique published image digest' >&2
+            exit 1
+          fi
+          {
+            printf '### Workbench %s\n' "$COMPONENT"
+            printf 'Source revision: `%s`\n\n' "$GITHUB_SHA"
+            printf 'Backoffice image setting: `%s`\n' "$reference"
+            printf '\nPublication only; no ECS or infrastructure deployment performed.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
