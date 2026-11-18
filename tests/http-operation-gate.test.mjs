@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { httpOperationGate } from '../api/src/security/httpOperationGate.js';
+let count=0;const test=(name,fn)=>{fn();count++;console.log(`ok ${count} - ${name}`)};
+const invoke=(enabled,method,body,path='/graphql')=>{let next=0,status;const res={status(n){status=n;return this},json(){return this}};httpOperationGate(enabled)({path,method,body},res,()=>next++);return {next,status}};
+test('proxy rejects batch at canonical path',()=>assert.equal(invoke(true,'POST',[{query:'query A { getSchema }'}]).status,400));
+test('proxy rejects batch at trailing slash',()=>assert.equal(invoke(true,'POST',[{query:'query A { getSchema }'}],'/graphql/').status,400));
+test('proxy rejects batch at case variant',()=>assert.equal(invoke(true,'POST',[{query:'query A { getSchema }'}],'/GraphQL').status,400));
+test('proxy rejects mutation GET before next',()=>assert.equal(invoke(true,'GET','mutation A { createDBConnection }').status,400));
+test('proxy rejects blocked root',()=>assert.equal(invoke(true,'POST',{query:'query A { createDBConnection }'}).status,400));
+test('proxy permits allowed query',()=>assert.equal(invoke(true,'POST',{query:'query A { getSchema }'}).next,1));
+test('non-proxy bypasses gate',()=>assert.equal(invoke(false,'POST',[{}]).next,1));
+console.log(`executed ${count} middleware unit tests; no HTTP server/Apollo integration claim`);

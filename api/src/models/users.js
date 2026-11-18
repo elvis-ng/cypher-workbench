@@ -19,7 +19,6 @@ import { getLicenseInfo, isCloudLicense } from '../license/license';
 import { generateTokenForUser } from "../security/localSessions";
 
 export const createUserSignUp = async ({ primaryOrganization, email, password, name, picture }, context) => {
-  console.log('args: ', primaryOrganization, email, password, name);
   if (!primaryOrganization) {
     return new Error('primaryOrganization is required');
   }
@@ -75,7 +74,6 @@ export const createUserSignUp = async ({ primaryOrganization, email, password, n
   picture = picture ? picture : '';
   name = name ? name : '';
   let adminEmail = (context) ? context.email : '';
-  console.log('admin email: ', adminEmail);
   const args = {
     primaryOrganization, name, encryptedPassword, email, picture, 
     adminEmail: adminEmail
@@ -104,8 +102,7 @@ export const verifyUserPassword = async (email, plainTextPassword) => {
       const passwordsMatch = (decryptedStoredUserPassword === plainTextPassword);
       return passwordsMatch;
     } catch (e) {
-      console.log(`Cannot decrypt stored user password ${user.properties.encryptedPassword}`)
-      console.log(e);
+      console.warn('Stored credential could not be decrypted');
     } 
   } else {
     console.log(`User ${email} not found`);
@@ -220,14 +217,12 @@ export const createUser = async (encryptedPassword, context) => {
               try {
                 decryptedSentUserPassword = decryptV1(encryptedPassword);
               } catch (e) {
-                console.log(`Cannot decrypt sent user password ${encryptedPassword}`)
-                console.log(e);
+                console.warn('Supplied credential could not be decrypted');
               }
               try {
                 decryptedStoredUserPassword = decryptV1(userProperties.encryptedPassword);
               } catch (e) {
-                console.log(`Cannot decrypt stored user password ${userProperties.encryptedPassword}`)
-                console.log(e);
+                console.warn('Stored credential could not be decrypted');
               }
             }
             

@@ -107,8 +107,7 @@ export default class ActiveCypherQuery extends Component {
             if (helperParamValues.length > 0 && helperParamValues.length === cypherHelperParameters.length) {
                 cypherHelperParameters.map((helperParamKey, index) => {
                     var helperParamValue = helperParamValues[index];
-                    helperParamKey = helperParamKey.replace('$', '\\$');
-                    cypher = cypher.replace(new RegExp(helperParamKey, 'g'), helperParamValue);
+                    cypher = cypher.split(helperParamKey).join(String(helperParamValue));
                 });
             }
             //console.log('cypher: ', cypher);

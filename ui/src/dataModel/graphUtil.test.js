@@ -31,6 +31,24 @@ test('test data types', () => {
 });
 
 
+test('deserializes identifiers with separator characters in object names', () => {
+    const result = deserializeObject({
+        objectSerializedId: 'Name_$$_with_$$_separator_$$_1',
+        objectKeyMap: {
+            'Name_$$_with_$$_separator_$$_1': { value: 42 }
+        }
+    }, { Name: () => ({}) });
+
+    expect(result).toEqual({ value: 42 });
+});
+
+test('rejects malformed serialized identifiers clearly', () => {
+    expect(() => deserializeObject({
+        objectSerializedId: 'malformed',
+        objectKeyMap: { malformed: {} }
+    })).toThrow('Deserialization error. Invalid serialized object id');
+});
+
 test('test serialize object 1', () => {
     var obj = { a: 1, getSerializableId: () => 'myId' };
     var serializedObj = serializeObject(obj);

@@ -43,6 +43,7 @@ import { ALERT_TYPES, COLORS } from '../common/Constants';
 import {
     haveLicensedFeaturesBeenSet,
     isFeatureLicensed,
+    isToolLicensed,
     setLicensedFeatures,
     FEATURES,
     TOOL_NAMES,
@@ -427,6 +428,19 @@ class Homepage extends Component {
   licensedTools = null;
 
   getToolsArray = () => {
+      if (getAuthMethod() === 'proxy') {
+          const supported = [TOOL_NAMES.CYPHER_BUILDER, TOOL_NAMES.CYPHER_SUITE];
+          const supportedTools = this.tools.filter(tool => supported.includes(tool.name) && isToolLicensed(tool.name));
+          supportedTools.forEach(tool => {
+              if (tool.component) return;
+              if (tool.name === TOOL_NAMES.CYPHER_BUILDER) {
+                  tool.component = lazy(() => import('../tools/toolCypherBuilder/CypherBuilderRefactor'));
+              } else if (tool.name === TOOL_NAMES.CYPHER_SUITE) {
+                  tool.component = lazy(() => import('../tools/toolCypherSuite/CypherSuite'));
+              }
+          });
+          return supportedTools;
+      }
       if (haveLicensedFeaturesBeenSet()) {
           if (this.licensedTools === null) {
               // initialize licensed tools
@@ -675,7 +689,7 @@ class Homepage extends Component {
     }*/
     var licenseInfo = await getLicenseInfo();
     if (licenseInfo.success) {
-        licenseInfo = licenseInfo.licenseInfo;
+        licenseInfo = licenseInfo.licenseInfo || {};
         window.licenseInfo = licenseInfo;
         //console.log(licensedFeaturesResult.features);
         if (licenseInfo.type === LICENSE_TYPES.Basic) {
@@ -730,6 +744,9 @@ class Homepage extends Component {
         } else {
             alert('There are no licensed tools');
         }
+    }
+    if (this.props.nativeHandshake) {
+        this.props.nativeHandshake.complete();
     }
   }
 

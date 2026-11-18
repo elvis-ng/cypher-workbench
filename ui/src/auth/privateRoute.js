@@ -9,7 +9,10 @@ const PrivateRoute = ({ auth, path, component: Component, ...rest }) => {
       auth={auth}
       {...rest}
       render={(props) => {
-        if (auth.type === "auth0") {
+        if (auth.type === "proxy") {
+          if (auth.isAuthenticated()) return <Component {...props} {...rest} />;
+          return <>You are not currently authenticated</>;
+        } else if (auth.type === "auth0") {
           if (auth.isAuthenticated()) {
             //console.log('props: ', props);
             return <Component {...props} {...rest} />;

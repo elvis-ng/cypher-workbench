@@ -3,6 +3,7 @@ import { getDynamicConfigValue } from '../dynamicConfig';
 
 import auth0 from "./auth0";
 import localAuth from "./localAuth";
+import proxyAuth from "./proxyAuth";
 
 var authMethod = null;
 var auth = null;
@@ -12,14 +13,14 @@ var auth = null;
 // logic has been changed to set them on first request  
 export const getAuthMethod = () => {
     if (!authMethod) {
-        authMethod = getDynamicConfigValue("REACT_APP_AUTH_METHOD");
+        authMethod = getDynamicConfigValue("REACT_APP_AUTH_METHOD") || "proxy";
     }
     return authMethod;
 }
 
 export const getAuth = () => {
     if (!auth) {
-        auth = (getAuthMethod() === "auth0") ? auth0 : localAuth;
+        auth = (getAuthMethod() === "auth0") ? auth0 : (getAuthMethod() === "local" ? localAuth : proxyAuth);
     } 
     return auth;
 }

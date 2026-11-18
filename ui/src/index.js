@@ -6,7 +6,7 @@ import * as serviceWorker from "./serviceWorker";
 import { BrowserRouter as Router } from "react-router-dom";
 
 const Main = () => (
-  <Router>
+  <Router basename={process.env.PUBLIC_URL || '/'}>
     <App />
   </Router>
 );

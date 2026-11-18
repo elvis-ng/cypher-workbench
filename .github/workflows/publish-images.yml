@@ -1,0 +1,88 @@
+name: Cypher Workbench - Publish images
+run-name: Publish Workbench API and UI from ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: cypher-workbench-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish paired API/UI images
+    environment: DEV App
+    runs-on:
+      - codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - instance-size:medium
+    env:
+      DEVSTACK_USERNAME: ${{ vars.DEVSTACK_USERNAME }}
+      DEVSTACK_API_TOKEN: ${{ secrets.DEVSTACK_API_TOKEN }}
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Resolve application version tag
+        id: version
+        uses: elvis-ng/elvis-workflows/.github/actions/resolve-image-tag@master
+      - name: Configure AWS account
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-aws-account-env@master
+      - name: Configure corporate proxy
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-proxy@master
+      - name: Configure Artifactory mTLS
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-artifactory-mtls@master
+        with:
+          client-pem-b64: ${{ secrets.ARTIFACTORY_MTLS_CLIENT_PEM_B64 }}
+      - name: Verify adapted source
+        shell: bash
+        run: sh scripts/verify-pinned-source.sh .
+      - name: Build both ARM64 images
+        shell: bash
+        run: |
+          set -euo pipefail
+          for component in api ui; do
+            docker build --platform linux/arm64 \
+              --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+              --build-arg http_proxy --build-arg https_proxy \
+              --build-arg NO_PROXY --build-arg no_proxy \
+              --tag "cypher-workbench-$component:latest" "$component"
+          done
+      - name: Publish commit images without replacing existing versions
+        shell: bash
+        env:
+          VERSION_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          registry='405567561446.dkr.ecr.eu-central-1.amazonaws.com'
+          test "$(aws sts get-caller-identity --query Account --output text)" = 405567561446
+          aws ecr get-login-password --region eu-central-1 \
+            | docker login --username AWS --password-stdin "$registry"
+          for component in api ui; do
+            repository="elvisng-cypher-workbench-$component"
+            tags=$(aws ecr list-images --registry-id 405567561446 --region eu-central-1 \
+              --repository-name "$repository" --filter tagStatus=TAGGED \
+              --query 'imageIds[].imageTag' --output json)
+            if VERSION_TAG="$VERSION_TAG" TAGS="$tags" python3 -c \
+              'import json,os,sys; sys.exit(0 if os.environ["VERSION_TAG"] in json.loads(os.environ["TAGS"]) else 1)'; then
+              printf 'Version %s already exists in %s; refusing to overwrite it\n' "$VERSION_TAG" "$repository" >&2
+              exit 1
+            fi
+          done
+          for component in api ui; do
+            image="$registry/elvisng-cypher-workbench-$component:$VERSION_TAG"
+            docker tag "cypher-workbench-$component:latest" "$image"
+            docker push "$image"
+          done
+      - name: Update paired dev tags and report digests
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/promote-images.py --stage dev

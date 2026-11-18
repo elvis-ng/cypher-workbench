@@ -3,6 +3,7 @@ import { grabLock } from '../../persistence/graphql/GraphQLGraphDoc';
 import SecurityRole from './SecurityRole';
 import { ALERT_TYPES, USER_ROLE } from '../../common/Constants';
 import { NETWORK_STATUS } from '../../persistence/graphql/GraphQLPersistence';
+import { getAuthMethod } from '../../auth/authUtil';
 
 
 /* args:
@@ -29,6 +30,12 @@ export const promptLockedDocument = ({props, messageContext, setNetworkStatus, s
         {
             text: 'Grab lock and Edit',
             onClick: (button, index, closeDialog) => {
+                if (getAuthMethod() === 'proxy') {
+                    props.setStatus('Managed private mode does not support document locking', false);
+                    alert('Managed private mode does not support document locking', ALERT_TYPES.WARNING);
+                    closeDialog();
+                    return;
+                }
                 props.setStatus("Grabbing lock", true);
                 grabLock(graphDocMetadata.key, (response) => {
                     if (response.success) {

@@ -12,6 +12,7 @@ import {
     GET_SYSTEM_MESSAGES
  } from './user';
 import { getDynamicConfigValue } from '../../dynamicConfig';
+import { csrfFetch } from './csrfFetch';
 
 const cache = new InMemoryCache({
     resultCaching: false
@@ -32,14 +33,11 @@ export const NETWORK_STATUS = {
 // see example: https://www.apollographql.com/docs/react/networking/authentication/
 function getLink () {
     if (!link) {
+        const proxyMode = getAuthMethod() === 'proxy';
         link = new HttpLink({
-            uri: getDynamicConfigValue("REACT_APP_GRAPHQL_URI"),
-            /* for testing purposes */
-            /*
-            headers: {
-                authorization: auth.getIdToken() ? `Bearer bad token` : ""
-            } */
-            headers: {
+            uri: getDynamicConfigValue("REACT_APP_GRAPHQL_URI") || '/backoffice/cypher-workbench/graphql',
+            fetch: proxyMode ? csrfFetch : undefined,
+            headers: proxyMode ? {} : {
                 authorization: getAuth().getIdToken() ? `Bearer ${getAuth().getIdToken()}` : ""
             }
        });
@@ -77,6 +75,12 @@ var client;
 export function getClient (properties) {
     const { caller } = properties || {};
     const token = getAuth().getIdToken();
+    if (getAuthMethod() === 'proxy') {
+        if (!client) {
+            client = new ApolloClient({ cache, link: getLink(), defaultOptions: { ...defaultOptions } });
+        }
+        return client;
+    }
     //console.log('token: ' + token);
     if (token) {
         if (!client) {
@@ -1229,6 +1233,16 @@ export async function getLicensedFeatures () {
 }
 
 export async function getLicenseInfo () {
+    if (getAuthMethod() === 'proxy') {
+        try {
+            const response = await fetch('/backoffice/cypher-workbench/license', { credentials: 'same-origin' });
+            if (!response.ok) return { success: false, error: `License unavailable: ${response.status}` };
+            const licenseInfo = await response.json();
+            return { success: true, licenseInfo };
+        } catch (error) {
+            return { success: false, error };
+        }
+    }
 
     var doGraphQLCall = function () {
         return new Promise((resolve, reject) => {
