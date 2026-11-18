@@ -1,6 +1,6 @@
 
 export const ERROR_MESSAGES = {
-    NODE_LABEL_TEXT_CANNOT_BE_EMPTY: "Node Label text cannot not be empty.",
+    NODE_LABEL_TEXT_CANNOT_BE_EMPTY: "Node Label text cannot be empty.",
     ITEM_CANNOT_CONTAIN_COLON: "Item cannot contain a colon.",
     NODE_LABEL_MUST_BE_UNIQUE: "Node Labels must be unique. That label is already taken.",
     SECONDARY_NODE_LABEL_MUST_BE_UNIQUE: "Used by a secondary node label on $nodeLabel. To add it, use Model Input.",

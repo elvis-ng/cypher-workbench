@@ -5,7 +5,7 @@ const INTERACTION_REQUIRED_TYPE = 'elvis-workbench:interaction-required';
 
 export const createNativeHandshake = (windowRef = window) => {
   let initialized = false;
-  let completed = false;
+  let outcome = null;
   let pendingAttempt = null;
 
   const post = (type, attempt, error) => {
@@ -22,23 +22,24 @@ export const createNativeHandshake = (windowRef = window) => {
 
     initialized = true;
     pendingAttempt = data.attempt;
-    if (completed) post(READY_TYPE, pendingAttempt);
+    if (outcome) post(outcome.type, pendingAttempt, outcome.error);
   };
 
   return {
     start: () => windowRef.addEventListener('message', onMessage),
     stop: () => windowRef.removeEventListener('message', onMessage),
     complete: () => {
-      completed = true;
+      outcome = { type: READY_TYPE };
       if (initialized) post(READY_TYPE, pendingAttempt);
     },
     interactionRequired: () => {
-      completed = false;
+      outcome = { type: INTERACTION_REQUIRED_TYPE };
       if (initialized) post(INTERACTION_REQUIRED_TYPE, pendingAttempt);
     },
     fail: error => {
-      completed = false;
-      if (initialized) post(ERROR_TYPE, pendingAttempt, error && error.message ? error.message : String(error));
+      const message = error && error.message ? error.message : String(error);
+      outcome = { type: ERROR_TYPE, error: message };
+      if (initialized) post(ERROR_TYPE, pendingAttempt, message);
     }
   };
 };

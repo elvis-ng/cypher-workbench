@@ -64,6 +64,46 @@ describe('native handshake', () => {
     );
   });
 
+  test('replays interaction-required outcome after initialize', () => {
+    const parent = { postMessage: jest.fn() };
+    const windowRef = {
+      location: { origin: 'https://admin.example.test' },
+      parent,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    const handshake = createNativeHandshake(windowRef);
+    handshake.start();
+    handshake.interactionRequired();
+    const listener = windowRef.addEventListener.mock.calls[0][1];
+
+    listener({ origin: 'https://admin.example.test', source: parent, data: { type: 'elvis-workbench:initialize', attempt: 'e2' } });
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      { type: 'elvis-workbench:interaction-required', attempt: 'e2' },
+      'https://admin.example.test'
+    );
+  });
+
+  test('replays failure outcome after initialize', () => {
+    const parent = { postMessage: jest.fn() };
+    const windowRef = {
+      location: { origin: 'https://admin.example.test' },
+      parent,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    const handshake = createNativeHandshake(windowRef);
+    handshake.start();
+    handshake.fail(new Error('bootstrap failed'));
+    const listener = windowRef.addEventListener.mock.calls[0][1];
+
+    listener({ origin: 'https://admin.example.test', source: parent, data: { type: 'elvis-workbench:initialize', attempt: 'f2' } });
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      { type: 'elvis-workbench:error', attempt: 'f2', error: 'bootstrap failed' },
+      'https://admin.example.test'
+    );
+  });
+
   test('supports initialize after bootstrap', () => {
     const parent = { postMessage: jest.fn() };
     const windowRef = {

@@ -1,5 +1,17 @@
 import { csrfFetch, resetCsrf } from './csrfFetch';
 
+test('retries CSRF bootstrap after a failed bootstrap', async () => {
+  resetCsrf();
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: false, status: 503 })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'retry-token', headerName: 'X-XSRF-TOKEN' }) })
+    .mockResolvedValueOnce({ ok: true });
+
+  await expect(csrfFetch('/graphql')).rejects.toThrow('CSRF bootstrap failed: 503');
+  await expect(csrfFetch('/graphql')).resolves.toEqual({ ok: true });
+  expect(global.fetch).toHaveBeenCalledTimes(3);
+});
+
 test('bootstraps CSRF and strips authorization on same-origin requests', async () => {
   resetCsrf();
   global.fetch = jest.fn()

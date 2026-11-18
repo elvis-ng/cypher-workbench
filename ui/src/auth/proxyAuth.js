@@ -24,6 +24,10 @@ class ProxyAuth {
           }
           this.session = session;
           return session;
+        })
+        .catch(error => {
+          this.sessionPromise = null;
+          throw error;
         });
     }
     return this.sessionPromise;
@@ -32,6 +36,14 @@ class ProxyAuth {
   isAuthenticated = () => Boolean(this.session && this.session.email);
   getIdToken = () => null;
   getLoggedInUserInfo = () => ({ email: this.session ? this.session.email : '' });
+  getCurrentUser = async () => {
+    const session = await this.bootstrap();
+    return {
+      email: session.email,
+      primaryOrganization: session.organization || '',
+      authorizedOrganizations: session.organization ? [session.organization] : []
+    };
+  };
   getIdentityInfo = () => ({ email: this.session ? this.session.email : '', sub: '', org: this.session ? (this.session.organization || '') : '' });
   getNewTokenOrLogin = async () => this.bootstrap();
 

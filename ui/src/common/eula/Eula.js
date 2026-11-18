@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import auth from "../../auth/localAuth";
+import { getAuth } from "../../auth/authUtil";
 import { doRedirect } from "../../auth/history";
 import { Button, Radio, Snackbar } from "@material-ui/core";
 import Wrapper from "../Wrapper";
@@ -26,19 +26,30 @@ const Eula = (props) => {
   const emailpayload = props.match.params.emailpayload;
   const { ex, px } = decipherPayload(emailpayload);
   const email = ex;
-  //auth.setSession(email);
-  auth.setAcceptedEula(false);
+  const auth = getAuth();
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [agreedToLicense, setAgreedToLicense] = useState(false);
   const licenseEulaFile = localStorage.getItem("licenseEulaFile");
 
-  const handleLogIn = () => {
-    if (agreedToLicense) {
-      localStorage.removeItem("licenseEulaFile");
-      auth.login(email, px);
-    } else {
+  const handleLogIn = async () => {
+    if (!agreedToLicense) {
       setSnackbarOpen(true);
+      return;
     }
+
+    if (auth.type === "proxy") {
+      try {
+        await auth.acceptEula();
+        localStorage.removeItem("licenseEulaFile");
+        auth.setAcceptedEula(true);
+        doRedirect("/", "Eula: proxy acceptance");
+      } catch (error) {
+        setSnackbarOpen(true);
+      }
+      return;
+    }
+    localStorage.removeItem("licenseEulaFile");
+    auth.login(email, px);
   };
 
   return (

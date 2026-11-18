@@ -1315,6 +1315,17 @@ export async function decryptAsymmetricEncryptedItems (items) {
 }
 
 export async function getCurrentUser () {
+    if (getAuthMethod() === 'proxy') {
+        const session = await getAuth().bootstrap();
+        return {
+            success: true,
+            user: {
+                email: session.email,
+                primaryOrganization: session.organization || '',
+                authorizedOrganizations: session.organization ? [session.organization] : []
+            }
+        };
+    }
 
     var doGraphQLCall = function () {
         return new Promise((resolve, reject) => {

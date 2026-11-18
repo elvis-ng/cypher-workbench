@@ -12,6 +12,10 @@ const getCsrf = () => {
       .then(({ token, headerName }) => {
         if (!token || !headerName) throw new Error('Invalid CSRF bootstrap response');
         return { token, headerName };
+      })
+      .catch(error => {
+        csrfPromise = null;
+        throw error;
       });
   }
   return csrfPromise;
