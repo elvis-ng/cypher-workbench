@@ -9,16 +9,16 @@ The repositories must be deployed from the owning `elvis-backup` CDK stack befor
 
 ## Publish a dev release
 
-Run **Cypher Workbench - Publish images** from the branch containing the reviewed patches. It builds both ARM64 images, publishes their common seven-character commit tag, then moves both `dev` tags only after both commit images exist. Existing commit tags are not overwritten. The workflow prints immutable image references after paired tagging succeeds.
+Run **Workbench - Publish images** in the private `elvis-ng/elvis-backoffice` repository. Supply `WORKBENCH_SHA`, the full reviewed 40-character commit SHA from this repository. Backoffice checks out that revision only as build input; native source is not vendored there. It builds both ARM64 images, publishes their common seven-character commit tag, then moves both `dev` tags only after both commit images exist. Existing commit tags are not overwritten. The workflow prints immutable image references after paired tagging succeeds.
 
 A failed build or commit push does not advance `dev`. If only one commit image was uploaded, inspect the failed run before retrying; the publisher deliberately refuses existing commit tags. Do not delete a deployed image to bypass that check.
 
 ## Promote an existing release
 
-Run **Cypher Workbench - Promote paired images**:
+Run **Workbench - Promote images** in `elvis-ng/elvis-backoffice`:
 
 1. Set `IMAGE_TAG` to the source tag, such as `dev` or a seven-character commit tag.
-2. Set `SOURCE_REF` to the source commit or branch whose commit images match that tag.
+2. Set `WORKBENCH_SHA` to the full source commit SHA whose commit images match that tag.
 3. Select destination `qa`, `test`, or `prod`.
 
 Promotion copies ECR manifests without rebuilding. Both source images must match the same source commit alias. Production promotion preserves the prior pair under `prod-previous`. Both workflows serialize their operations; stage environment approvals still apply.
