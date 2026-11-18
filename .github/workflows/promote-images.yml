@@ -1,0 +1,71 @@
+name: Cypher Workbench - Promote paired images
+run-name: Promote Workbench images to ${{ inputs.STAGE }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      IMAGE_TAG:
+        description: Source raw ECR tag
+        required: true
+        default: dev
+        type: string
+      STAGE:
+        description: Destination stage
+        required: true
+        default: qa
+        type: choice
+        options: [dev, qa, test, prod]
+      SOURCE_REF:
+        description: Source branch, tag, or commit SHA for published images
+        required: true
+        default: master
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: cypher-workbench-images
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote API and UI images
+    environment: ${{ inputs.STAGE == 'prod' && 'PROD App' || inputs.STAGE == 'test' && 'TEST App' || 'QA App' }}
+    runs-on:
+      - codebuild-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - instance-size:medium
+    steps:
+      - name: Check out workflow revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Resolve source revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.SOURCE_REF }}
+          path: release-source
+          persist-credentials: false
+
+      - name: Export source SHA
+        shell: bash
+        run: echo "SOURCE_REF=$(git -C release-source rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Configure AWS account
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-aws-account-env@master
+
+      - name: Configure corporate proxy
+        uses: elvis-ng/elvis-workflows/.github/actions/setup-proxy@master
+
+      - name: Verify AWS account
+        shell: bash
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = 405567561446
+
+      - name: Promote paired tags
+        env:
+          IMAGE_TAG: ${{ inputs.IMAGE_TAG }}
+          STAGE: ${{ inputs.STAGE }}
+          SOURCE_REF: ${{ inputs.SOURCE_REF }}
+        run: python3 scripts/promote-images.py
